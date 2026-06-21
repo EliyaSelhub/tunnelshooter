@@ -5,7 +5,7 @@ const RINGS = 20
 const RADIUS = 180
 const FOCAL = 400
 const RING_STEP = 120
-const SPEED = 400
+const SPEED = 300
 const Z_PLAYER = 175
 const Z_RECYCLE = 150
 const Z_FAR = Z_RECYCLE + RINGS * RING_STEP   // 2550
@@ -28,8 +28,8 @@ const ENEMY_SPEED_DELTA = 200
 const ENEMY_SPAWN_RATE = 0.3
 const ENEMY_SIZE = 18
 const ENEMY_HIT_ANGLE = FACE_ANGLE * 0.55
-const WANDER_MAX_VEL = 1.2
-const WANDER_ACCEL = 6
+const WANDER_MAX_VEL = 3.5
+const WANDER_ACCEL = 14
 
 const LARGE_HIT_ANGLE = FACE_ANGLE * 1.1
 const MEDIUM_WAVE_RATE = 6
@@ -40,7 +40,7 @@ const LARGE_HP = 10
 const PARTICLE_COUNT = 8
 const PARTICLE_SPEED = 120
 const PARTICLE_LIFE = 0.6
-const MAX_SHIELDS = 10
+const MAX_SHIELDS = 5
 const SCORE_SMALL = 10
 const SCORE_MEDIUM = 50
 const SCORE_LARGE = 200
@@ -48,6 +48,11 @@ const PLAYER_HIT_ANGLE = FACE_ANGLE * 0.8
 const SHIELD_RESTORE = 3
 
 const ENTITY_RADIUS = RADIUS * 0.85
+
+const UPGRADE_DURATION = 15
+const SIDE_CANNON_ANGLE = Math.PI / 9   // 20° off axis
+const SIDE_CANNON_SPIRAL_RATE = Math.PI / 2
+const UPGRADES = ['dualCannons', 'largerAmmo', 'firingRate', 'sideCannons']
 
 const SHIP_DEPTH = 25
 const SHIP_HALF_FACE = Math.PI / (SIDES * 2)
@@ -91,6 +96,7 @@ export default class GameScene extends Phaser.Scene {
     this.score = 0
     this.particles = []
     this.pickups = []
+    this.upgrades = {}
     this.mediumWaveTimer = MEDIUM_WAVE_RATE
     this.mediumPatterns = {}
     this.nextPatternId = 0
@@ -224,22 +230,45 @@ export default class GameScene extends Phaser.Scene {
     const cY = (BLy + BRy + APy) / 3
     const cZ = Z_PLAYER + SHIP_DEPTH / 3
 
-    const tw = 1.5 * CANNON_CIRCLE_R
-    const th = 3.0 * CANNON_CIRCLE_R
-    const hw = tw / 2
+    const tw = (this.upgrades.largerAmmo ? 2.5 : 1.5) * CANNON_CIRCLE_R
+    const th = (this.upgrades.firingRate ? 2.0 : 3.0) * CANNON_CIRCLE_R
     const nZ = cZ
     const fZ = cZ + th
 
-    const [t0x, t0y] = this.project(cX - hw + shipXOff, cY + this.yOffset(nZ), nZ)
-    const [t1x, t1y] = this.project(cX + hw + shipXOff, cY + this.yOffset(nZ), nZ)
-    const [t2x, t2y] = this.project(cX + hw + shipXOff, cY + this.yOffset(fZ), fZ)
-    const [t3x, t3y] = this.project(cX - hw + shipXOff, cY + this.yOffset(fZ), fZ)
+    const drawBarrel = (bx, by, halfW) => {
+      const [t0x, t0y] = this.project(bx - halfW + shipXOff, by + this.yOffset(nZ), nZ)
+      const [t1x, t1y] = this.project(bx + halfW + shipXOff, by + this.yOffset(nZ), nZ)
+      const [t2x, t2y] = this.project(bx + halfW + shipXOff, by + this.yOffset(fZ), fZ)
+      const [t3x, t3y] = this.project(bx - halfW + shipXOff, by + this.yOffset(fZ), fZ)
+      this.gfx.fillStyle(0x000000, 1)
+      this.gfx.fillTriangle(t0x, t0y, t1x, t1y, t2x, t2y)
+      this.gfx.fillTriangle(t0x, t0y, t2x, t2y, t3x, t3y)
+      this.gfx.lineStyle(1.5, 0x00ffff, 1)
+      this.gfx.strokePoints([{x:t0x,y:t0y},{x:t1x,y:t1y},{x:t2x,y:t2y},{x:t3x,y:t3y}], true)
+    }
 
-    this.gfx.fillStyle(0x000000, 1)
-    this.gfx.fillTriangle(t0x, t0y, t1x, t1y, t2x, t2y)
-    this.gfx.fillTriangle(t0x, t0y, t2x, t2y, t3x, t3y)
-    this.gfx.lineStyle(1.5, 0x00ffff, 1)
-    this.gfx.strokePoints([{x:t0x,y:t0y},{x:t1x,y:t1y},{x:t2x,y:t2y},{x:t3x,y:t3y}], true)
+    if (this.upgrades.dualCannons) {
+      const rlen = Math.hypot(cX, cY)
+      const tx = -cY / rlen, ty = cX / rlen
+      const off = tw * 0.7
+      drawBarrel(cX + tx * off, cY + ty * off, tw * 0.4)
+      drawBarrel(cX - tx * off, cY - ty * off, tw * 0.4)
+    } else {
+      drawBarrel(cX, cY, tw / 2)
+    }
+
+    if (this.upgrades.sideCannons) {
+      const wa = Math.atan2(cY, cX)
+      const rlen = Math.hypot(cX, cY)
+      for (const sideOff of [-SIDE_CANNON_ANGLE, SIDE_CANNON_ANGLE]) {
+        const sx = Math.cos(wa + sideOff) * rlen
+        const sy = Math.sin(wa + sideOff) * rlen
+        const [ln0x, ln0y] = this.project(cX + shipXOff, cY + this.yOffset(nZ), nZ)
+        const [ln1x, ln1y] = this.project(sx + shipXOff, sy + this.yOffset(fZ), fZ)
+        this.gfx.lineStyle(1, 0x00ffff, 1)
+        this.gfx.lineBetween(ln0x, ln0y, ln1x, ln1y)
+      }
+    }
 
     const e1x = BRx - BLx, e1y = BRy - BLy
     const e2x = APx - BLx, e2y = APy - BLy
@@ -300,24 +329,47 @@ export default class GameScene extends Phaser.Scene {
     this.shipMat.rotateZ(this.playerTilt)
     this.shipMat.translateXYZ(0, -pivotY, 0)
 
+    // --- upgrade timers ---
+    for (const key of Object.keys(this.upgrades)) {
+      this.upgrades[key] -= dt
+      if (this.upgrades[key] <= 0) delete this.upgrades[key]
+    }
+
     // --- physics ---
 
     for (const shot of this.shots) shot.zPrev = shot.z
     for (const enemy of this.enemies) enemy.zPrev = enemy.z
 
+    const fireRate = this.upgrades.firingRate ? SHOT_FIRE_RATE * 0.5 : SHOT_FIRE_RATE
+    const shotDamage = this.upgrades.largerAmmo ? 2 : 1
     this.shotTimer += dt
-    while (this.shotTimer >= SHOT_FIRE_RATE) {
-      this.shotTimer -= SHOT_FIRE_RATE
+    while (this.shotTimer >= fireRate) {
+      this.shotTimer -= fireRate
       const c = this.cannonCenter
-      this.shots.push({
-        cylinderAngle: Math.atan2(c.y, c.x) - this.baseAngle,
-        radius: Math.hypot(c.x, c.y),
-        z: c.z,
-        zPrev: c.z,
-      })
+      const cannonAngle = Math.atan2(c.y, c.x) - this.baseAngle
+      const r = Math.hypot(c.x, c.y)
+      const mainAngles = this.upgrades.dualCannons
+        ? [cannonAngle - FACE_ANGLE * 0.5, cannonAngle + FACE_ANGLE * 0.5]
+        : [cannonAngle]
+      for (const angle of mainAngles) {
+        this.shots.push({ cylinderAngle: angle, radius: r, z: c.z, zPrev: c.z, damage: shotDamage })
+      }
+      if (this.upgrades.sideCannons) {
+        for (const sideOff of [-SIDE_CANNON_ANGLE, SIDE_CANNON_ANGLE]) {
+          this.shots.push({
+            cylinderAngle: cannonAngle + sideOff,
+            radius: r, z: c.z, zPrev: c.z,
+            damage: shotDamage,
+            spiralRate: sideOff > 0 ? SIDE_CANNON_SPIRAL_RATE : -SIDE_CANNON_SPIRAL_RATE,
+          })
+        }
+      }
     }
 
-    for (const shot of this.shots) shot.z += SHOT_SPEED * dt
+    for (const shot of this.shots) {
+      shot.z += SHOT_SPEED * dt
+      if (shot.spiralRate) shot.cylinderAngle += shot.spiralRate * dt
+    }
 
     // Spawn small enemies
     this.enemySpawnTimer -= dt
@@ -401,18 +453,21 @@ export default class GameScene extends Phaser.Scene {
           da -= Math.round(da / (Math.PI * 2)) * (Math.PI * 2)
           if (Math.abs(da) < hitAngle) {
             deadShots.add(si)
-            if (--enemy.hp <= 0) {
+            if ((enemy.hp -= (shot.damage || 1)) <= 0) {
               deadEnemies.add(ei)
               this.addScore(enemy.type === 'large' ? SCORE_LARGE : enemy.type === 'medium' ? SCORE_MEDIUM : SCORE_SMALL)
               const wa = enemy.cylinderAngle + this.baseAngle
               this.spawnExplosion(Math.cos(wa) * ENTITY_RADIUS, Math.sin(wa) * ENTITY_RADIUS, enemy.z,
-                enemy.type === 'large' ? 0xff0000 : enemy.type === 'medium' ? 0xaa00ff : 0xff4400)
+                enemy.type === 'large' ? 0x44aaff : enemy.type === 'medium' ? 0xaa00ff : 0xff4400)
               if (enemy.type === 'medium') {
                 const pid = enemy.patternId
                 if (this.mediumPatterns[pid] !== undefined && --this.mediumPatterns[pid] <= 0) {
                   delete this.mediumPatterns[pid]
-                  this.pickups.push({ cylinderAngle: enemy.cylinderAngle, z: enemy.z })
+                  this.pickups.push({ type: 'shield', cylinderAngle: enemy.cylinderAngle, z: enemy.z })
                 }
+              } else if (enemy.type === 'large') {
+                const upgradeType = UPGRADES[Math.floor(Math.random() * UPGRADES.length)]
+                this.pickups.push({ type: 'weapon', upgradeType, cylinderAngle: enemy.cylinderAngle, z: enemy.z })
               }
             }
           }
@@ -444,8 +499,12 @@ export default class GameScene extends Phaser.Scene {
         let da = (pickup.cylinderAngle + this.baseAngle) - Math.PI / 2
         da -= Math.round(da / (Math.PI * 2)) * (Math.PI * 2)
         if (Math.abs(da) < FACE_ANGLE) {
-          this.shields = Math.min(MAX_SHIELDS, this.shields + SHIELD_RESTORE)
-          this.registry.set('shields', this.shields)
+          if (pickup.type === 'weapon') {
+            this.upgrades[pickup.upgradeType] = UPGRADE_DURATION
+          } else {
+            this.shields = Math.min(MAX_SHIELDS, this.shields + SHIELD_RESTORE)
+            this.registry.set('shields', this.shields)
+          }
         }
         deadPickups.add(pi)
       }
@@ -531,8 +590,8 @@ export default class GameScene extends Phaser.Scene {
       const isMedium = enemy.type === 'medium'
       const tSize = isLarge ? ENEMY_SIZE * 2.5 : isMedium ? ENEMY_SIZE * 1.5 : ENEMY_SIZE
       const rSize = isLarge ? ENEMY_SIZE * 1.2 : isMedium ? ENEMY_SIZE * 1.2 : ENEMY_SIZE
-      const fillColor = isLarge ? 0xff0000 : isMedium ? 0xaa00ff : 0xff4400
-      const strokeColor = isLarge ? 0xff6600 : isMedium ? 0xff00ff : 0xff8800
+      const fillColor = isLarge ? 0x0044ff : isMedium ? 0xaa00ff : 0xff4400
+      const strokeColor = isLarge ? 0x44aaff : isMedium ? 0xff00ff : 0xff8800
 
       const [p0x, p0y] = this.project(cx + cosA * rSize + xOff, cy + sinA * rSize + yOff, enemy.z)
       const [p1x, p1y] = this.project(cx - sinA * tSize + xOff, cy + cosA * tSize + yOff, enemy.z)
@@ -556,10 +615,19 @@ export default class GameScene extends Phaser.Scene {
       const wy = Math.sin(worldAngle) * ENTITY_RADIUS
       const [px, py] = this.project(wx + xOff, wy + yOff, pickup.z)
       const s = 10 * FOCAL / pickup.z
-      this.gfx.lineStyle(2, 0x00ffff, alpha)
-      this.gfx.lineBetween(px - s, py, px + s, py)
-      this.gfx.lineBetween(px, py - s, px, py + s)
-      this.gfx.strokeCircle(px, py, s * 0.7)
+      if (pickup.type === 'weapon') {
+        this.gfx.lineStyle(2, 0xffff00, alpha)
+        for (let i = 0; i < 4; i++) {
+          const a = (i / 4) * Math.PI * 2 + Math.PI / 4
+          this.gfx.lineBetween(px, py, px + Math.cos(a) * s, py + Math.sin(a) * s)
+        }
+        this.gfx.strokeCircle(px, py, s * 0.5)
+      } else {
+        this.gfx.lineStyle(2, 0x00ffff, alpha)
+        this.gfx.lineBetween(px - s, py, px + s, py)
+        this.gfx.lineBetween(px, py - s, px, py + s)
+        this.gfx.strokeCircle(px, py, s * 0.7)
+      }
     }
 
     for (const p of this.particles) {

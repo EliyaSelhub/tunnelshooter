@@ -34,6 +34,8 @@ export default class GameOverScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
     })
 
-    this.input.once('pointerdown', () => this.scene.start('GameScene'))
+    this.time.delayedCall(500, () => {
+      this.input.once('pointerdown', () => this.scene.start('GameScene'))
+    })
   }
 }

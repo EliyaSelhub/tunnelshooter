@@ -48,7 +48,7 @@
 - Bullet physics: shots check collision each frame against enemy positions — no tunneling through fast enemies. Use swept collision or per-frame overlap test at bullet z range.
 - Collision with player reduces shields. Damage by size: small = 1, medium = 2, large = 5.
 
-### STEP 7 — Weapon upgrades
+### ✓ STEP 7 — Weapon upgrades
 
 Rewards drop from large enemy kills. Each reward is random and lasts **15 seconds**. Getting the same reward again resets its duration. Effects are cumulative (all active at once).
 
