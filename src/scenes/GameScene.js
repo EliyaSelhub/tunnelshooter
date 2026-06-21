@@ -45,7 +45,7 @@ const SCORE_SMALL = 10
 const SCORE_MEDIUM = 50
 const SCORE_LARGE = 200
 const PLAYER_HIT_ANGLE = FACE_ANGLE * 0.8
-const SHIELD_RESTORE = 3
+const SHIELD_RESTORE = 1
 
 const ENTITY_RADIUS = RADIUS * 0.85
 
@@ -53,6 +53,11 @@ const UPGRADE_DURATION = 15
 const SIDE_CANNON_ANGLE = Math.PI / 9   // 20° off axis
 const SIDE_CANNON_SPIRAL_RATE = Math.PI / 2
 const UPGRADES = ['dualCannons', 'largerAmmo', 'firingRate', 'sideCannons']
+const UPGRADE_LABELS = { dualCannons: 'DUAL CANNONS', largerAmmo: 'BIG SHOTS', firingRate: 'RAPID FIRE', sideCannons: 'SIDE CANNONS' }
+
+const MEDIUM_WAVE_AMP = Math.PI / 3    // 60° half-swing → 120° total ≈ 1/3 circumference
+const MEDIUM_WAVE_FREQ = 1.5           // rad/s
+const PLAYER_FLASH_DURATION = 0.5
 
 const SHIP_DEPTH = 25
 const SHIP_HALF_FACE = Math.PI / (SIDES * 2)
@@ -97,6 +102,7 @@ export default class GameScene extends Phaser.Scene {
     this.particles = []
     this.pickups = []
     this.upgrades = {}
+    this.playerFlash = 0
     this.mediumWaveTimer = MEDIUM_WAVE_RATE
     this.mediumPatterns = {}
     this.nextPatternId = 0
@@ -106,6 +112,7 @@ export default class GameScene extends Phaser.Scene {
     this.registry.set('score', 0)
     this.registry.set('shields', MAX_SHIELDS)
     this.registry.set('maxShields', MAX_SHIELDS)
+    this.registry.set('upgrades', {})
     this.scene.stop('HUDScene')
     this.scene.launch('HUDScene')
 
@@ -211,6 +218,8 @@ export default class GameScene extends Phaser.Scene {
   }
 
   drawPlayer() {
+    const flashOn = this.playerFlash > 0 && (Math.floor(this.playerFlash * 10) % 2 === 0)
+    const shipColor = flashOn ? 0xff0000 : 0x00ffff
     const shipXOff = this.xOffset(Z_PLAYER)
 
     const [BLx, BLy] = this.applyMat2D(this.shipMat, ...SHIP_BL)
@@ -223,7 +232,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.gfx.fillStyle(0x000000, 1)
     this.gfx.fillTriangle(lsx, lsy, rsx, rsy, asx, asy)
-    this.gfx.lineStyle(2, 0x00ffff, 1)
+    this.gfx.lineStyle(2, shipColor, 1)
     this.gfx.strokeTriangle(lsx, lsy, rsx, rsy, asx, asy)
 
     const cX = (BLx + BRx + APx) / 3
@@ -243,7 +252,7 @@ export default class GameScene extends Phaser.Scene {
       this.gfx.fillStyle(0x000000, 1)
       this.gfx.fillTriangle(t0x, t0y, t1x, t1y, t2x, t2y)
       this.gfx.fillTriangle(t0x, t0y, t2x, t2y, t3x, t3y)
-      this.gfx.lineStyle(1.5, 0x00ffff, 1)
+      this.gfx.lineStyle(1.5, shipColor, 1)
       this.gfx.strokePoints([{x:t0x,y:t0y},{x:t1x,y:t1y},{x:t2x,y:t2y},{x:t3x,y:t3y}], true)
     }
 
@@ -265,7 +274,7 @@ export default class GameScene extends Phaser.Scene {
         const sy = Math.sin(wa + sideOff) * rlen
         const [ln0x, ln0y] = this.project(cX + shipXOff, cY + this.yOffset(nZ), nZ)
         const [ln1x, ln1y] = this.project(sx + shipXOff, sy + this.yOffset(fZ), fZ)
-        this.gfx.lineStyle(1, 0x00ffff, 1)
+        this.gfx.lineStyle(1, shipColor, 1)
         this.gfx.lineBetween(ln0x, ln0y, ln1x, ln1y)
       }
     }
@@ -303,7 +312,7 @@ export default class GameScene extends Phaser.Scene {
       const next = (i + 1) % CANNON_CIRCLE_N
       this.gfx.fillTriangle(ccx, ccy, pts[i].x, pts[i].y, pts[next].x, pts[next].y)
     }
-    this.gfx.lineStyle(1.5, 0x00ffff, 1)
+    this.gfx.lineStyle(1.5, shipColor, 1)
     this.gfx.strokePoints(pts, true)
 
     this.cannonCenter = { x: cX, y: cY, z: fZ + CANNON_CIRCLE_R }
@@ -334,6 +343,8 @@ export default class GameScene extends Phaser.Scene {
       this.upgrades[key] -= dt
       if (this.upgrades[key] <= 0) delete this.upgrades[key]
     }
+    this.registry.set('upgrades', { ...this.upgrades })
+    if (this.playerFlash > 0) this.playerFlash = Math.max(0, this.playerFlash - dt)
 
     // --- physics ---
 
@@ -396,10 +407,13 @@ export default class GameScene extends Phaser.Scene {
       this.mediumPatterns[pid] = count
       const baseLane = Math.floor(Math.random() * SIDES)
       for (let i = 0; i < count; i++) {
+        const baseAngle = ((baseLane + i) % SIDES + 0.5) * FACE_ANGLE
         this.enemies.push({
           type: 'medium',
           patternId: pid,
-          cylinderAngle: ((baseLane + i) % SIDES + 0.5) * FACE_ANGLE,
+          cylinderAngle: baseAngle,
+          baseAngle,
+          phaseOffset: i * (Math.PI / 2),
           z: Z_FAR - i * RING_STEP,
           zPrev: Z_FAR - i * RING_STEP,
           age: 0,
@@ -423,10 +437,13 @@ export default class GameScene extends Phaser.Scene {
     for (const enemy of this.enemies) {
       enemy.age += dt
       enemy.z -= (enemy.type === 'large' ? SPEED : SPEED + ENEMY_SPEED_DELTA) * dt
+      if (enemy.flash > 0) enemy.flash = Math.max(0, enemy.flash - dt)
       if (enemy.type === 'small') {
         enemy.angVel += (Math.random() - 0.5) * WANDER_ACCEL * dt
         enemy.angVel = Math.max(-WANDER_MAX_VEL, Math.min(WANDER_MAX_VEL, enemy.angVel))
         enemy.cylinderAngle += enemy.angVel * dt
+      } else if (enemy.type === 'medium') {
+        enemy.cylinderAngle = enemy.baseAngle + MEDIUM_WAVE_AMP * Math.sin(MEDIUM_WAVE_FREQ * enemy.age + enemy.phaseOffset)
       }
     }
 
@@ -453,7 +470,8 @@ export default class GameScene extends Phaser.Scene {
           da -= Math.round(da / (Math.PI * 2)) * (Math.PI * 2)
           if (Math.abs(da) < hitAngle) {
             deadShots.add(si)
-            if ((enemy.hp -= (shot.damage || 1)) <= 0) {
+            const dmgDone = (shot.damage || 1)
+            if ((enemy.hp -= dmgDone) <= 0) {
               deadEnemies.add(ei)
               this.addScore(enemy.type === 'large' ? SCORE_LARGE : enemy.type === 'medium' ? SCORE_MEDIUM : SCORE_SMALL)
               const wa = enemy.cylinderAngle + this.baseAngle
@@ -469,6 +487,8 @@ export default class GameScene extends Phaser.Scene {
                 const upgradeType = UPGRADES[Math.floor(Math.random() * UPGRADES.length)]
                 this.pickups.push({ type: 'weapon', upgradeType, cylinderAngle: enemy.cylinderAngle, z: enemy.z })
               }
+            } else {
+              enemy.flash = 0.15
             }
           }
         }
@@ -485,6 +505,7 @@ export default class GameScene extends Phaser.Scene {
         if (Math.abs(da) < PLAYER_HIT_ANGLE) {
           const dmg = enemy.type === 'large' ? 5 : enemy.type === 'medium' ? 2 : 1
           this.drainShields(dmg)
+          this.playerFlash = PLAYER_FLASH_DURATION
           this.spawnExplosion(0, ENTITY_RADIUS, Z_PLAYER, 0xffffff)
         }
         deadEnemies.add(ei)
@@ -499,11 +520,17 @@ export default class GameScene extends Phaser.Scene {
         let da = (pickup.cylinderAngle + this.baseAngle) - Math.PI / 2
         da -= Math.round(da / (Math.PI * 2)) * (Math.PI * 2)
         if (Math.abs(da) < FACE_ANGLE) {
+          const pa = pickup.cylinderAngle + this.baseAngle
+          const pwx = Math.cos(pa) * ENTITY_RADIUS + this.xOffset(pickup.z)
+          const pwy = Math.sin(pa) * ENTITY_RADIUS + this.yOffset(pickup.z)
+          const [psx, psy] = this.project(pwx, pwy, pickup.z)
           if (pickup.type === 'weapon') {
             this.upgrades[pickup.upgradeType] = UPGRADE_DURATION
+            this.spawnPickupAnim(psx, psy, 0xffff00, UPGRADE_LABELS[pickup.upgradeType] + '!', { x: 91, y: 50 })
           } else {
             this.shields = Math.min(MAX_SHIELDS, this.shields + SHIELD_RESTORE)
             this.registry.set('shields', this.shields)
+            this.spawnPickupAnim(psx, psy, 0x00ffff, 'SHIELDS +' + SHIELD_RESTORE, { x: 91, y: 29 })
           }
         }
         deadPickups.add(pi)
@@ -569,10 +596,11 @@ export default class GameScene extends Phaser.Scene {
         Math.sin(worldAngle) * shot.radius + yOff,
         shot.z
       )
-      const sr = SHOT_WORLD_RADIUS * FOCAL / shot.z
+      const damageScale = (shot.damage || 1) > 1 ? 2.2 : 1.0
+      const sr = SHOT_WORLD_RADIUS * damageScale * FOCAL / shot.z
       this.gfx.fillStyle(0x000000, alpha)
       this.gfx.fillCircle(px, py, sr)
-      this.gfx.lineStyle(1, 0xffff00, alpha)
+      this.gfx.lineStyle(shot.damage > 1 ? 2 : 1, 0xffff00, alpha)
       this.gfx.strokeCircle(px, py, sr)
     }
 
@@ -598,10 +626,11 @@ export default class GameScene extends Phaser.Scene {
       const [p2x, p2y] = this.project(cx - cosA * rSize + xOff, cy - sinA * rSize + yOff, enemy.z)
       const [p3x, p3y] = this.project(cx + sinA * tSize + xOff, cy - cosA * tSize + yOff, enemy.z)
 
-      this.gfx.fillStyle(fillColor, alpha * 0.7)
+      const eFlash = enemy.flash > 0
+      this.gfx.fillStyle(eFlash ? 0xffffff : fillColor, alpha * (eFlash ? 1.0 : 0.7))
       this.gfx.fillTriangle(p0x, p0y, p1x, p1y, p2x, p2y)
       this.gfx.fillTriangle(p0x, p0y, p2x, p2y, p3x, p3y)
-      this.gfx.lineStyle(1.5, strokeColor, alpha)
+      this.gfx.lineStyle(1.5, eFlash ? 0xffffff : strokeColor, alpha)
       this.gfx.strokePoints([{x:p0x,y:p0y},{x:p1x,y:p1y},{x:p2x,y:p2y},{x:p3x,y:p3y}], true)
     }
 
@@ -638,6 +667,28 @@ export default class GameScene extends Phaser.Scene {
       this.gfx.fillStyle(p.color, alpha)
       this.gfx.fillCircle(sx, sy, p.size * FOCAL / p.z)
     }
+  }
+
+  spawnPickupAnim(fromX, fromY, color, label, target) {
+    const hex = '#' + color.toString(16).padStart(6, '0')
+    const icon = this.add.arc(fromX, fromY, 8, 0, 360, false, color, 1)
+    icon.setDepth(50)
+    this.tweens.add({
+      targets: icon,
+      x: target.x, y: target.y,
+      alpha: 0, scaleX: 0.3, scaleY: 0.3,
+      duration: 700, ease: 'Cubic.easeIn',
+      onComplete: () => icon.destroy(),
+    })
+    const text = this.add.text(fromX, fromY - 20, label, {
+      fontSize: '14px', fontFamily: 'monospace', color: hex,
+    }).setOrigin(0.5).setDepth(50)
+    this.tweens.add({
+      targets: text,
+      y: fromY - 80, alpha: 0,
+      duration: 1400, ease: 'Power2',
+      onComplete: () => text.destroy(),
+    })
   }
 
   spawnExplosion(wx, wy, z, color) {

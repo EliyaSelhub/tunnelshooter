@@ -1,5 +1,12 @@
 import Phaser from 'phaser'
 
+const UPGRADE_NAMES = {
+  dualCannons: 'DUAL CANNONS',
+  largerAmmo:  'BIG SHOTS',
+  firingRate:  'RAPID FIRE',
+  sideCannons: 'SIDE CANNONS',
+}
+
 export default class HUDScene extends Phaser.Scene {
   constructor() {
     super({ key: 'HUDScene' })
@@ -29,12 +36,37 @@ export default class HUDScene extends Phaser.Scene {
       fontSize: '26px', fontFamily: 'monospace', color: '#00ffff',
     }).setOrigin(1, 0)
 
+    // Active upgrades list — below shield bar
+    this._upgradeTexts = {}
+    for (const key of Object.keys(UPGRADE_NAMES)) {
+      this._upgradeTexts[key] = this.add.text(16, 0, '', {
+        fontSize: '9px', fontFamily: 'monospace', color: '#ffff00',
+      }).setVisible(false)
+    }
+
     this._onScore = (_, v) => this.scoreText.setText(String(v))
     this._onShields = (_, v) => { this.currentShields = v; this.drawShields() }
     this.registry.events.on('changedata-score', this._onScore)
     this.registry.events.on('changedata-shields', this._onShields)
 
     this.events.once('shutdown', this._cleanup, this)
+  }
+
+  update() {
+    const upgrades = this.registry.get('upgrades') || {}
+    let yPos = 46
+    for (const key of Object.keys(UPGRADE_NAMES)) {
+      const text = this._upgradeTexts[key]
+      const t = upgrades[key]
+      if (t > 0) {
+        text.setPosition(16, yPos)
+        text.setText(UPGRADE_NAMES[key] + '  ' + Math.ceil(t) + 's')
+        text.setVisible(true)
+        yPos += 12
+      } else {
+        text.setVisible(false)
+      }
+    }
   }
 
   _cleanup() {
