@@ -79,6 +79,8 @@ export default class GameScene extends Phaser.Scene {
     const { width, height } = this.scale
     this.cx = width / 2
     this.vpY = height / 3
+    this.dpr = width / 390
+    this.focal = 400 * this.dpr
     this.gfx = this.add.graphics()
 
     this.baseAngle = BASE_ANGLE_ORIGIN
@@ -168,7 +170,7 @@ export default class GameScene extends Phaser.Scene {
   // Final step of the 3D pipeline: world (x, y, z) → screen (sx, sy).
   // y must already include yOffset before calling.
   project(x, y, z) {
-    const s = FOCAL / z
+    const s = this.focal / z
     return [this.cx + x * s, this.vpY + y * s]
   }
 
@@ -232,7 +234,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.gfx.fillStyle(0x000000, 1)
     this.gfx.fillTriangle(lsx, lsy, rsx, rsy, asx, asy)
-    this.gfx.lineStyle(2, shipColor, 1)
+    this.gfx.lineStyle(2 * this.dpr, shipColor, 1)
     this.gfx.strokeTriangle(lsx, lsy, rsx, rsy, asx, asy)
 
     const cX = (BLx + BRx + APx) / 3
@@ -252,7 +254,7 @@ export default class GameScene extends Phaser.Scene {
       this.gfx.fillStyle(0x000000, 1)
       this.gfx.fillTriangle(t0x, t0y, t1x, t1y, t2x, t2y)
       this.gfx.fillTriangle(t0x, t0y, t2x, t2y, t3x, t3y)
-      this.gfx.lineStyle(1.5, shipColor, 1)
+      this.gfx.lineStyle(1.5 * this.dpr, shipColor, 1)
       this.gfx.strokePoints([{x:t0x,y:t0y},{x:t1x,y:t1y},{x:t2x,y:t2y},{x:t3x,y:t3y}], true)
     }
 
@@ -274,7 +276,7 @@ export default class GameScene extends Phaser.Scene {
         const sy = Math.sin(wa + sideOff) * rlen
         const [ln0x, ln0y] = this.project(cX + shipXOff, cY + this.yOffset(nZ), nZ)
         const [ln1x, ln1y] = this.project(sx + shipXOff, sy + this.yOffset(fZ), fZ)
-        this.gfx.lineStyle(1, shipColor, 1)
+        this.gfx.lineStyle(1 * this.dpr, shipColor, 1)
         this.gfx.lineBetween(ln0x, ln0y, ln1x, ln1y)
       }
     }
@@ -312,7 +314,7 @@ export default class GameScene extends Phaser.Scene {
       const next = (i + 1) % CANNON_CIRCLE_N
       this.gfx.fillTriangle(ccx, ccy, pts[i].x, pts[i].y, pts[next].x, pts[next].y)
     }
-    this.gfx.lineStyle(1.5, shipColor, 1)
+    this.gfx.lineStyle(1.5 * this.dpr, shipColor, 1)
     this.gfx.strokePoints(pts, true)
 
     this.cannonCenter = { x: cX, y: cY, z: fZ + CANNON_CIRCLE_R }
@@ -526,11 +528,11 @@ export default class GameScene extends Phaser.Scene {
           const [psx, psy] = this.project(pwx, pwy, pickup.z)
           if (pickup.type === 'weapon') {
             this.upgrades[pickup.upgradeType] = UPGRADE_DURATION
-            this.spawnPickupAnim(psx, psy, 0xffff00, UPGRADE_LABELS[pickup.upgradeType] + '!', { x: 374, y: 54 })
+            this.spawnPickupAnim(psx, psy, 0xffff00, UPGRADE_LABELS[pickup.upgradeType] + '!', { x: 374 * this.dpr, y: 54 * this.dpr })
           } else {
             this.shields = Math.min(MAX_SHIELDS, this.shields + SHIELD_RESTORE)
             this.registry.set('shields', this.shields)
-            this.spawnPickupAnim(psx, psy, 0x00ffff, 'SHIELDS +' + SHIELD_RESTORE, { x: 91, y: 29 })
+            this.spawnPickupAnim(psx, psy, 0x00ffff, 'SHIELDS +' + SHIELD_RESTORE, { x: 91 * this.dpr, y: 29 * this.dpr })
           }
         }
         deadPickups.add(pi)
@@ -566,7 +568,7 @@ export default class GameScene extends Phaser.Scene {
       for (let r = 0; r < radialFrames.length - 1; r++) {
         const alpha = Math.min(radialFrames[r].alpha, radialFrames[r + 1].alpha)
         if (alpha <= 0) continue
-        this.gfx.lineStyle(1, 0x00ff00, alpha)
+        this.gfx.lineStyle(1 * this.dpr, 0x00ff00, alpha)
         const [x1, y1] = radialFrames[r].pts[i]
         const [x2, y2] = radialFrames[r + 1].pts[i]
         this.gfx.lineBetween(x1, y1, x2, y2)
@@ -575,7 +577,7 @@ export default class GameScene extends Phaser.Scene {
 
     for (const { pts, alpha } of frames) {
       if (alpha <= 0) continue
-      this.gfx.lineStyle(1, 0x00ff00, alpha)
+      this.gfx.lineStyle(1 * this.dpr, 0x00ff00, alpha)
       for (let i = 0; i < SIDES; i++) {
         const [x1, y1] = pts[i]
         const [x2, y2] = pts[(i + 1) % SIDES]
@@ -597,10 +599,10 @@ export default class GameScene extends Phaser.Scene {
         shot.z
       )
       const damageScale = (shot.damage || 1) > 1 ? 2.2 : 1.0
-      const sr = SHOT_WORLD_RADIUS * damageScale * FOCAL / shot.z
+      const sr = SHOT_WORLD_RADIUS * damageScale * this.focal / shot.z
       this.gfx.fillStyle(0x000000, alpha)
       this.gfx.fillCircle(px, py, sr)
-      this.gfx.lineStyle(shot.damage > 1 ? 2 : 1, 0xffff00, alpha)
+      this.gfx.lineStyle((shot.damage > 1 ? 2 : 1) * this.dpr, 0xffff00, alpha)
       this.gfx.strokeCircle(px, py, sr)
     }
 
@@ -630,7 +632,7 @@ export default class GameScene extends Phaser.Scene {
       this.gfx.fillStyle(eFlash ? 0xffffff : fillColor, alpha * (eFlash ? 1.0 : 0.7))
       this.gfx.fillTriangle(p0x, p0y, p1x, p1y, p2x, p2y)
       this.gfx.fillTriangle(p0x, p0y, p2x, p2y, p3x, p3y)
-      this.gfx.lineStyle(1.5, eFlash ? 0xffffff : strokeColor, alpha)
+      this.gfx.lineStyle(1.5 * this.dpr, eFlash ? 0xffffff : strokeColor, alpha)
       this.gfx.strokePoints([{x:p0x,y:p0y},{x:p1x,y:p1y},{x:p2x,y:p2y},{x:p3x,y:p3y}], true)
     }
 
@@ -643,16 +645,16 @@ export default class GameScene extends Phaser.Scene {
       const wx = Math.cos(worldAngle) * ENTITY_RADIUS
       const wy = Math.sin(worldAngle) * ENTITY_RADIUS
       const [px, py] = this.project(wx + xOff, wy + yOff, pickup.z)
-      const s = 10 * FOCAL / pickup.z
+      const s = 10 * this.focal / pickup.z
       if (pickup.type === 'weapon') {
-        this.gfx.lineStyle(2, 0xffff00, alpha)
+        this.gfx.lineStyle(2 * this.dpr, 0xffff00, alpha)
         for (let i = 0; i < 4; i++) {
           const a = (i / 4) * Math.PI * 2 + Math.PI / 4
           this.gfx.lineBetween(px, py, px + Math.cos(a) * s, py + Math.sin(a) * s)
         }
         this.gfx.strokeCircle(px, py, s * 0.5)
       } else {
-        this.gfx.lineStyle(2, 0x00ffff, alpha)
+        this.gfx.lineStyle(2 * this.dpr, 0x00ffff, alpha)
         this.gfx.lineBetween(px - s, py, px + s, py)
         this.gfx.lineBetween(px, py - s, px, py + s)
         this.gfx.strokeCircle(px, py, s * 0.7)
@@ -665,13 +667,13 @@ export default class GameScene extends Phaser.Scene {
       if (alpha <= 0) continue
       const [sx, sy] = this.project(p.wx + this.xOffset(p.z), p.wy + this.yOffset(p.z), p.z)
       this.gfx.fillStyle(p.color, alpha)
-      this.gfx.fillCircle(sx, sy, p.size * FOCAL / p.z)
+      this.gfx.fillCircle(sx, sy, p.size * this.focal / p.z)
     }
   }
 
   spawnPickupAnim(fromX, fromY, color, label, target) {
     const hex = '#' + color.toString(16).padStart(6, '0')
-    const icon = this.add.arc(fromX, fromY, 8, 0, 360, false, color, 1)
+    const icon = this.add.arc(fromX, fromY, 8 * this.dpr, 0, 360, false, color, 1)
     icon.setDepth(50)
     this.tweens.add({
       targets: icon,
@@ -682,11 +684,11 @@ export default class GameScene extends Phaser.Scene {
     })
     const cy = this.scale.height / 2
     const text = this.add.text(this.cx, cy, label, {
-      fontSize: '18px', fontFamily: 'monospace', color: hex,
+      fontSize: `${18 * this.dpr}px`, fontFamily: 'monospace', color: hex,
     }).setOrigin(0.5).setDepth(50)
     this.tweens.add({
       targets: text,
-      y: cy - 60, alpha: 0,
+      y: cy - 60 * this.dpr, alpha: 0,
       duration: 1200, ease: 'Power2',
       onComplete: () => text.destroy(),
     })

@@ -7,18 +7,19 @@ export default class StartScene extends Phaser.Scene {
 
   create() {
     const { width, height } = this.scale
+    const dpr = width / 390
 
     this.add.text(width / 2, height * 0.35, 'TUNNEL\nSHOOTER', {
-      fontSize: '52px',
+      fontSize: `${52 * dpr}px`,
       fontFamily: 'monospace',
       color: '#00ffff',
       align: 'center',
     }).setOrigin(0.5)
 
     const tap = this.add.text(width / 2, height * 0.62, 'tap to start', {
-      fontSize: '18px',
+      fontSize: `${18 * dpr}px`,
       fontFamily: 'monospace',
-      color: '#006666',
+      color: '#009999',
     }).setOrigin(0.5)
 
     this.tweens.add({
