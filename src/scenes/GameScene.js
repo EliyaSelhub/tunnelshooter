@@ -17,7 +17,7 @@ const CURVE_HALF_SPAN = Z_MID - Z_RECYCLE
 
 const FACE_ANGLE = (Math.PI * 2) / SIDES
 const BASE_ANGLE_ORIGIN = 11.25 * Math.PI / 180
-const MAX_ROT_SPEED = Math.PI / 2
+const MAX_ROT_SPEED = Math.PI * 0.75
 const MAX_TILT = Math.PI / 9
 
 const SHOT_SPEED = 1200
