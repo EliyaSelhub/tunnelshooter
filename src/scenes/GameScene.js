@@ -20,12 +20,12 @@ const BASE_ANGLE_ORIGIN = 11.25 * Math.PI / 180
 const MAX_ROT_SPEED = Math.PI * 0.75
 const MAX_TILT = Math.PI / 9
 
-const SHOT_SPEED = 1200
-const SHOT_FIRE_RATE = 0.2
+const SHOT_SPEED = 1300
+const SHOT_FIRE_RATE = 0.18
 const SHOT_WORLD_RADIUS = RADIUS * Math.sin(Math.PI / (SIDES * 2)) / 5
 
 const ENEMY_SPEED_DELTA = 200
-const ENEMY_SPAWN_RATE = 0.6
+const ENEMY_SPAWN_RATE = .2
 const ENEMY_SIZE = 18
 const ENEMY_HIT_ANGLE = FACE_ANGLE * 0.55
 const WANDER_MAX_VEL = 3.5
