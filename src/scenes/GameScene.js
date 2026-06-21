@@ -464,7 +464,7 @@ export default class GameScene extends Phaser.Scene {
       for (let ei = 0; ei < this.enemies.length; ei++) {
         if (deadEnemies.has(ei)) continue
         const enemy = this.enemies[ei]
-        if (shot.zPrev <= enemy.zPrev && shot.z >= enemy.z) {
+        if (shot.zPrev <= enemy.zPrev && shot.z >= enemy.z && this.depthAlpha(enemy.z) >= 0.25) {
           const hitAngle = enemy.type === 'large' ? LARGE_HIT_ANGLE : ENEMY_HIT_ANGLE
           let da = shot.cylinderAngle - enemy.cylinderAngle
           da -= Math.round(da / (Math.PI * 2)) * (Math.PI * 2)
