@@ -55,8 +55,8 @@ const SIDE_CANNON_SPIRAL_RATE = Math.PI / 2
 const UPGRADES = ['dualCannons', 'largerAmmo', 'firingRate', 'sideCannons']
 const UPGRADE_LABELS = { dualCannons: 'DUAL CANNONS', largerAmmo: 'BIG SHOTS', firingRate: 'RAPID FIRE', sideCannons: 'SIDE CANNONS' }
 
-const MEDIUM_WAVE_AMP = Math.PI / 3    // 60° half-swing → 120° total ≈ 1/3 circumference
-const MEDIUM_WAVE_FREQ = 1.5           // rad/s
+const MEDIUM_WAVE_AMP = Math.PI / 3              // 60° half-swing → 120° total ≈ 1/3 circumference
+const MEDIUM_WAVE_FREQ = (2 * Math.PI) / (20 * RING_STEP) // full cycle per 20 ring-steps (slow spatial wave)
 const PLAYER_FLASH_DURATION = 0.5
 
 const SHIP_DEPTH = 25
@@ -406,16 +406,16 @@ export default class GameScene extends Phaser.Scene {
       const pid = this.nextPatternId++
       this.mediumPatterns[pid] = count
       const baseLane = Math.floor(Math.random() * SIDES)
+      const waveCenter = (baseLane + 0.5) * FACE_ANGLE
       for (let i = 0; i < count; i++) {
-        const baseAngle = ((baseLane + i) % SIDES + 0.5) * FACE_ANGLE
+        const spawnZ = Z_FAR - i * RING_STEP
         this.enemies.push({
           type: 'medium',
           patternId: pid,
-          cylinderAngle: baseAngle,
-          baseAngle,
-          phaseOffset: i * (Math.PI / 2),
-          z: Z_FAR - i * RING_STEP,
-          zPrev: Z_FAR - i * RING_STEP,
+          cylinderAngle: waveCenter + MEDIUM_WAVE_AMP * Math.sin(MEDIUM_WAVE_FREQ * spawnZ),
+          waveCenter,
+          z: spawnZ,
+          zPrev: spawnZ,
           age: 0,
           hp: MEDIUM_HP,
         })
@@ -443,7 +443,7 @@ export default class GameScene extends Phaser.Scene {
         enemy.angVel = Math.max(-WANDER_MAX_VEL, Math.min(WANDER_MAX_VEL, enemy.angVel))
         enemy.cylinderAngle += enemy.angVel * dt
       } else if (enemy.type === 'medium') {
-        enemy.cylinderAngle = enemy.baseAngle + MEDIUM_WAVE_AMP * Math.sin(MEDIUM_WAVE_FREQ * enemy.age + enemy.phaseOffset)
+        enemy.cylinderAngle = enemy.waveCenter + MEDIUM_WAVE_AMP * Math.sin(MEDIUM_WAVE_FREQ * enemy.z)
       }
     }
 
@@ -488,7 +488,7 @@ export default class GameScene extends Phaser.Scene {
                 this.pickups.push({ type: 'weapon', upgradeType, cylinderAngle: enemy.cylinderAngle, z: enemy.z })
               }
             } else {
-              enemy.flash = 0.15
+              enemy.flash = 0.07
             }
           }
         }
@@ -526,7 +526,7 @@ export default class GameScene extends Phaser.Scene {
           const [psx, psy] = this.project(pwx, pwy, pickup.z)
           if (pickup.type === 'weapon') {
             this.upgrades[pickup.upgradeType] = UPGRADE_DURATION
-            this.spawnPickupAnim(psx, psy, 0xffff00, UPGRADE_LABELS[pickup.upgradeType] + '!', { x: 91, y: 50 })
+            this.spawnPickupAnim(psx, psy, 0xffff00, UPGRADE_LABELS[pickup.upgradeType] + '!', { x: 374, y: 54 })
           } else {
             this.shields = Math.min(MAX_SHIELDS, this.shields + SHIELD_RESTORE)
             this.registry.set('shields', this.shields)
@@ -680,13 +680,14 @@ export default class GameScene extends Phaser.Scene {
       duration: 700, ease: 'Cubic.easeIn',
       onComplete: () => icon.destroy(),
     })
-    const text = this.add.text(fromX, fromY - 20, label, {
-      fontSize: '14px', fontFamily: 'monospace', color: hex,
+    const cy = this.scale.height / 2
+    const text = this.add.text(this.cx, cy, label, {
+      fontSize: '18px', fontFamily: 'monospace', color: hex,
     }).setOrigin(0.5).setDepth(50)
     this.tweens.add({
       targets: text,
-      y: fromY - 80, alpha: 0,
-      duration: 1400, ease: 'Power2',
+      y: cy - 60, alpha: 0,
+      duration: 1200, ease: 'Power2',
       onComplete: () => text.destroy(),
     })
   }

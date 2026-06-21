@@ -36,12 +36,12 @@ export default class HUDScene extends Phaser.Scene {
       fontSize: '26px', fontFamily: 'monospace', color: '#00ffff',
     }).setOrigin(1, 0)
 
-    // Active upgrades list — below shield bar
+    // Active upgrades list — top right, below score
     this._upgradeTexts = {}
     for (const key of Object.keys(UPGRADE_NAMES)) {
-      this._upgradeTexts[key] = this.add.text(16, 0, '', {
+      this._upgradeTexts[key] = this.add.text(width - 16, 0, '', {
         fontSize: '9px', fontFamily: 'monospace', color: '#ffff00',
-      }).setVisible(false)
+      }).setOrigin(1, 0).setVisible(false)
     }
 
     this._onScore = (_, v) => this.scoreText.setText(String(v))
@@ -54,12 +54,13 @@ export default class HUDScene extends Phaser.Scene {
 
   update() {
     const upgrades = this.registry.get('upgrades') || {}
-    let yPos = 46
+    const w = this.scale.width
+    let yPos = 54
     for (const key of Object.keys(UPGRADE_NAMES)) {
       const text = this._upgradeTexts[key]
       const t = upgrades[key]
       if (t > 0) {
-        text.setPosition(16, yPos)
+        text.setPosition(w - 16, yPos)
         text.setText(UPGRADE_NAMES[key] + '  ' + Math.ceil(t) + 's')
         text.setVisible(true)
         yPos += 12
