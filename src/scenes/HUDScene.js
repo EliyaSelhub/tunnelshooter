@@ -29,8 +29,17 @@ export default class HUDScene extends Phaser.Scene {
       fontSize: '26px', fontFamily: 'monospace', color: '#00ffff',
     }).setOrigin(1, 0)
 
-    this.registry.events.on('changedata-score', (_, v) => this.scoreText.setText(String(v)), this)
-    this.registry.events.on('changedata-shields', (_, v) => { this.currentShields = v; this.drawShields() }, this)
+    this._onScore = (_, v) => this.scoreText.setText(String(v))
+    this._onShields = (_, v) => { this.currentShields = v; this.drawShields() }
+    this.registry.events.on('changedata-score', this._onScore)
+    this.registry.events.on('changedata-shields', this._onShields)
+
+    this.events.once('shutdown', this._cleanup, this)
+  }
+
+  _cleanup() {
+    this.registry.events.off('changedata-score', this._onScore)
+    this.registry.events.off('changedata-shields', this._onShields)
   }
 
   drawShields() {
@@ -43,10 +52,5 @@ export default class HUDScene extends Phaser.Scene {
     this.shieldGfx.fillRect(x, y, Math.round(w * ratio), h)
     this.shieldGfx.lineStyle(1, 0x006666, 1)
     this.shieldGfx.strokeRect(x, y, w, h)
-  }
-
-  shutdown() {
-    this.registry.events.off('changedata-score', null, this)
-    this.registry.events.off('changedata-shields', null, this)
   }
 }
