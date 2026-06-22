@@ -8,6 +8,7 @@ const RING_STEP = 120
 const SPEED = 300
 const Z_PLAYER = 175
 const Z_RECYCLE = 150
+const Z_DESPAWN = Z_RECYCLE - 2
 const Z_FAR = Z_RECYCLE + RINGS * RING_STEP   // 2550
 const Z_FADE_START = Z_FAR * 0.25
 
@@ -44,7 +45,7 @@ const MAX_SHIELDS = 5
 const SCORE_SMALL = 10
 const SCORE_MEDIUM = 50
 const SCORE_LARGE = 200
-const PLAYER_HIT_ANGLE = FACE_ANGLE * 0.8
+const PLAYER_HIT_ANGLE = FACE_ANGLE * 0.4
 const SHIELD_RESTORE = 1
 
 const ENTITY_RADIUS = RADIUS * 0.85
@@ -58,6 +59,39 @@ const UPGRADE_LABELS = { dualCannons: 'DUAL CANNONS', largerAmmo: 'BIG SHOTS', f
 const MEDIUM_WAVE_AMP = Math.PI / 3              // 60° half-swing → 120° total ≈ 1/3 circumference
 const MEDIUM_WAVE_FREQ = (2 * Math.PI) / (20 * RING_STEP) // full cycle per 20 ring-steps (slow spatial wave)
 const PLAYER_FLASH_DURATION = 0.5
+
+const BOSS_REST_Z = 630
+const BOSS_OUTER_R = ENTITY_RADIUS
+const BOSS_INNER_R = RADIUS * 0.62
+const BOSS_SPEED = 3200
+const BOSS_POINTS = 16
+const BOSS_POINT_HP = 2
+const BOSS_HIT_HALF_ANGLE = (Math.PI / BOSS_POINTS) * 0.7
+const BOSS_JAG_COUNT = 4
+const BOSS_JAG_AMP = BOSS_INNER_R * 0.12
+const BOSS_FLASH_DUR = 0.08
+const BOSS_SHOT_SPEED = 323
+const BOSS_SHOT_HIT_ANGLE = FACE_ANGLE * 0.55
+const MINE_SPEED = 250
+const MINE_HP = 1
+const MINE_HIT_ANGLE = FACE_ANGLE * 0.55
+const MINE_EXPLODE_HALF_ANGLE = Math.PI / 5
+const MINE_EXPLODE_Z_RANGE = 200
+const MINE_BLAST_RADIUS = 80
+const MINE_BLAST_SPEED = 450
+const MINE_SPAWN_INTERVAL_MIN = 2.0
+const MINE_SPAWN_INTERVAL_MAX = 4.0
+const WALL_SPEED = 80
+const WALL_HP = 2
+const WALL_HALF_ANGLE = FACE_ANGLE           // total = 2 face widths
+const WALL_WAVE_COUNT = 3
+const WALL_WAVE_GAP = 0.7
+const WALL_GROW_DURATION = 0.15
+const LASER_TRAIL_LENGTH = 30
+const ATTACK_COLUMN_GAP = 0.4
+const ATTACK_SPIRAL_INTERVAL = 0.08
+const ATTACK_COOLDOWN_MIN = 0.5
+const ATTACK_COOLDOWN_MAX = 1.0
 
 const SHIP_DEPTH = 25
 const SHIP_HALF_FACE = Math.PI / (SIDES * 2)
@@ -110,6 +144,18 @@ export default class GameScene extends Phaser.Scene {
     this.nextPatternId = 0
     this.largeWaveCountdown = 3 + Math.floor(Math.random() * 2)
     this.gameActive = true
+    this.dying = false
+    this.bossCountdown = 45
+    this.bossShots = []
+    this.mines = []
+    this.blasts = []
+    this.walls = []
+    this.bossAttack = null
+    this.bossAttackCooldown = 0
+    this.wallAttackCooldown = 0
+
+    this.bossMode = false
+    this.boss = null
 
     this.registry.set('score', 0)
     this.registry.set('shields', MAX_SHIELDS)
@@ -198,6 +244,15 @@ export default class GameScene extends Phaser.Scene {
   applyMat2D(mat, x, y) {
     const v = mat.val
     return [v[0] * x + v[4] * y + v[12], v[1] * x + v[5] * y + v[13]]
+  }
+
+  pointInTriangle(px, py, ax, ay, bx, by, cx, cy) {
+    const d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by)
+    const d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy)
+    const d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay)
+    const hasNeg = d1 < 0 || d2 < 0 || d3 < 0
+    const hasPos = d1 > 0 || d2 > 0 || d3 > 0
+    return !(hasNeg && hasPos)
   }
 
   depthAlpha(z) {
@@ -355,7 +410,7 @@ export default class GameScene extends Phaser.Scene {
 
     const fireRate = this.upgrades.firingRate ? SHOT_FIRE_RATE * 0.5 : SHOT_FIRE_RATE
     const shotDamage = this.upgrades.largerAmmo ? 2 : 1
-    this.shotTimer += dt
+    if (!this.dying) this.shotTimer += dt
     while (this.shotTimer >= fireRate) {
       this.shotTimer -= fireRate
       const c = this.cannonCenter
@@ -384,56 +439,85 @@ export default class GameScene extends Phaser.Scene {
       if (shot.spiralRate) shot.cylinderAngle += shot.spiralRate * dt
     }
 
-    // Spawn small enemies
-    this.enemySpawnTimer -= dt
-    if (this.enemySpawnTimer <= 0) {
-      this.enemySpawnTimer = ENEMY_SPAWN_RATE
-      const lane = Math.floor(Math.random() * SIDES)
-      this.enemies.push({
-        type: 'small',
-        cylinderAngle: (lane + 0.5) * FACE_ANGLE,
-        angVel: 0,
-        z: Z_FAR,
-        zPrev: Z_FAR,
-        age: 0,
-        hp: 1,
-      })
-    }
-
-    // Spawn medium wave; large enemy piggybacks every 3-4 medium waves
-    this.mediumWaveTimer -= dt
-    if (this.mediumWaveTimer <= 0) {
-      this.mediumWaveTimer = MEDIUM_WAVE_RATE
-      const count = MEDIUM_PATTERN_MIN + Math.floor(Math.random() * (MEDIUM_PATTERN_MAX - MEDIUM_PATTERN_MIN + 1))
-      const pid = this.nextPatternId++
-      this.mediumPatterns[pid] = count
-      const baseLane = Math.floor(Math.random() * SIDES)
-      const waveCenter = (baseLane + 0.5) * FACE_ANGLE
-      for (let i = 0; i < count; i++) {
-        const spawnZ = Z_FAR - i * RING_STEP
+    if (!this.bossMode) {
+      // Spawn small enemies
+      this.enemySpawnTimer -= dt
+      if (this.enemySpawnTimer <= 0) {
+        this.enemySpawnTimer = ENEMY_SPAWN_RATE
+        const lane = Math.floor(Math.random() * SIDES)
         this.enemies.push({
-          type: 'medium',
-          patternId: pid,
-          cylinderAngle: waveCenter + MEDIUM_WAVE_AMP * Math.sin(MEDIUM_WAVE_FREQ * spawnZ),
-          waveCenter,
-          z: spawnZ,
-          zPrev: spawnZ,
-          age: 0,
-          hp: MEDIUM_HP,
-        })
-      }
-      if (--this.largeWaveCountdown <= 0) {
-        this.largeWaveCountdown = 3 + Math.floor(Math.random() * 2)
-        this.enemies.push({
-          type: 'large',
-          cylinderAngle: (Math.floor(Math.random() * SIDES) + 0.5) * FACE_ANGLE,
+          type: 'small',
+          cylinderAngle: (lane + 0.5) * FACE_ANGLE,
+          angVel: 0,
           z: Z_FAR,
           zPrev: Z_FAR,
           age: 0,
-          hp: LARGE_HP,
+          hp: 1,
         })
       }
+
+      // Spawn medium wave; large enemy piggybacks every 3-4 medium waves
+      this.mediumWaveTimer -= dt
+      if (this.mediumWaveTimer <= 0) {
+        this.mediumWaveTimer = MEDIUM_WAVE_RATE
+        const count = MEDIUM_PATTERN_MIN + Math.floor(Math.random() * (MEDIUM_PATTERN_MAX - MEDIUM_PATTERN_MIN + 1))
+        const pid = this.nextPatternId++
+        this.mediumPatterns[pid] = count
+        const baseLane = Math.floor(Math.random() * SIDES)
+        const waveCenter = (baseLane + 0.5) * FACE_ANGLE
+        for (let i = 0; i < count; i++) {
+          const spawnZ = Z_FAR - i * RING_STEP
+          this.enemies.push({
+            type: 'medium',
+            patternId: pid,
+            cylinderAngle: waveCenter + MEDIUM_WAVE_AMP * Math.sin(MEDIUM_WAVE_FREQ * spawnZ),
+            waveCenter,
+            z: spawnZ,
+            zPrev: spawnZ,
+            age: 0,
+            hp: MEDIUM_HP,
+          })
+        }
+        if (--this.largeWaveCountdown <= 0) {
+          this.largeWaveCountdown = 3 + Math.floor(Math.random() * 2)
+          this.enemies.push({
+            type: 'large',
+            cylinderAngle: (Math.floor(Math.random() * SIDES) + 0.5) * FACE_ANGLE,
+            z: Z_FAR,
+            zPrev: Z_FAR,
+            age: 0,
+            hp: LARGE_HP,
+          })
+        }
+      }
     }
+
+    // Boss respawn countdown
+    if (!this.bossMode && this.bossCountdown > 0) {
+      this.bossCountdown -= dt
+      if (this.bossCountdown <= 0) {
+        this.bossMode = true
+        this.boss = {
+          z: Z_FAR + 600,
+          angle: 0,
+          points: Array.from({ length: BOSS_POINTS }, () => ({ hp: BOSS_POINT_HP, alive: true, jags: null, flash: 0 })),
+          mineTimers: Array.from({ length: BOSS_POINTS }, () => MINE_SPAWN_INTERVAL_MIN + Math.random() * (MINE_SPAWN_INTERVAL_MAX - MINE_SPAWN_INTERVAL_MIN)),
+        }
+      }
+    }
+
+    // Boss approach
+    if (this.boss) {
+      if (this.boss.z > BOSS_REST_Z) {
+        this.boss.z = Math.max(BOSS_REST_Z, this.boss.z - BOSS_SPEED * dt)
+      }
+      this.boss.angle += 0.25 * dt
+      for (const bp of this.boss.points) {
+        if (bp.flash > 0) bp.flash = Math.max(0, bp.flash - dt)
+      }
+    }
+
+    this.tickBossAttack(dt)
 
     // Move enemies
     for (const enemy of this.enemies) {
@@ -448,6 +532,10 @@ export default class GameScene extends Phaser.Scene {
         enemy.cylinderAngle = enemy.waveCenter + MEDIUM_WAVE_AMP * Math.sin(MEDIUM_WAVE_FREQ * enemy.z)
       }
     }
+
+    for (const s of this.bossShots) { s.zPrev = s.z; s.z -= BOSS_SHOT_SPEED * dt }
+    for (const m of this.mines) { m.zPrev = m.z; m.z -= MINE_SPEED * dt; m.cylinderAngle += m.angVel * dt; if (m.flash > 0) m.flash = Math.max(0, m.flash - dt) }
+    for (const w of this.walls) { w.zPrev = w.z; w.z -= WALL_SPEED * dt; if (w.flash > 0) w.flash = Math.max(0, w.flash - dt); w.growTimer = Math.min(WALL_GROW_DURATION, (w.growTimer || 0) + dt) }
 
     for (const pickup of this.pickups) pickup.z -= SPEED * dt
 
@@ -497,11 +585,91 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // Player-enemy collision
+    // Boss point collision
+    if (this.boss) {
+      for (let si = 0; si < this.shots.length; si++) {
+        if (!this.boss) break
+        if (deadShots.has(si)) continue
+        const shot = this.shots[si]
+        if (!(shot.zPrev <= this.boss.z && shot.z >= this.boss.z)) continue
+        const shotWorldAngle = shot.cylinderAngle + this.baseAngle
+        for (let p = 0; p < BOSS_POINTS; p++) {
+          const bp = this.boss.points[p]
+          if (!bp.alive) continue
+          const pointWorldAngle = (p / BOSS_POINTS) * Math.PI * 2 + this.boss.angle + this.baseAngle
+          let da = shotWorldAngle - pointWorldAngle
+          da -= Math.round(da / (Math.PI * 2)) * (Math.PI * 2)
+          if (Math.abs(da) < BOSS_HIT_HALF_ANGLE) {
+            deadShots.add(si)
+            bp.hp -= shot.damage || 1
+            if (bp.hp <= 0) {
+              bp.alive = false
+              bp.jags = Array.from({ length: BOSS_JAG_COUNT }, () => (Math.random() - 0.5) * 2 * BOSS_JAG_AMP)
+              if (this.boss.points.every(b => !b.alive)) this.defeatBoss()
+            } else {
+              bp.flash = BOSS_FLASH_DUR
+            }
+            break
+          }
+        }
+      }
+    }
+
+    // Player shots vs mines
+    const deadMines = new Set()
+    for (let si = 0; si < this.shots.length; si++) {
+      if (deadShots.has(si)) continue
+      const shot = this.shots[si]
+      for (let mi = 0; mi < this.mines.length; mi++) {
+        if (deadMines.has(mi)) continue
+        const mine = this.mines[mi]
+        if (shot.zPrev <= mine.zPrev && shot.z >= mine.z) {
+          let da = shot.cylinderAngle - mine.cylinderAngle
+          da -= Math.round(da / (Math.PI * 2)) * (Math.PI * 2)
+          if (Math.abs(da) < MINE_HIT_ANGLE) {
+            deadShots.add(si)
+            mine.hp -= shot.damage || 1
+            if (mine.hp <= 0) this.triggerMineExplosion(mi, deadMines)
+            else mine.flash = 0.07
+            break
+          }
+        }
+      }
+    }
+
+    // Player shots vs walls
+    const deadWalls = new Set()
+    for (let si = 0; si < this.shots.length; si++) {
+      if (deadShots.has(si)) continue
+      const shot = this.shots[si]
+      for (let wi = 0; wi < this.walls.length; wi++) {
+        if (deadWalls.has(wi)) continue
+        const wall = this.walls[wi]
+        if (shot.zPrev <= wall.zPrev && shot.z >= wall.z) {
+          let da = shot.cylinderAngle - wall.cylinderAngle
+          da -= Math.round(da / (Math.PI * 2)) * (Math.PI * 2)
+          if (Math.abs(da) < WALL_HALF_ANGLE) {
+            deadShots.add(si)
+            wall.hp -= shot.damage || 1
+            if (wall.hp <= 0) {
+              deadWalls.add(wi)
+              const wa = wall.cylinderAngle + this.baseAngle
+              this.spawnExplosion(Math.cos(wa) * ENTITY_RADIUS, Math.sin(wa) * ENTITY_RADIUS, wall.z, 0x886600)
+            } else {
+              wall.flash = 0.07
+            }
+            break
+          }
+        }
+      }
+    }
+
+    // Player-enemy collision (swept — enemies continue to Z_DESPAWN before removal)
     for (let ei = 0; ei < this.enemies.length; ei++) {
       if (deadEnemies.has(ei)) continue
       const enemy = this.enemies[ei]
-      if (enemy.z <= Z_PLAYER) {
+      if (!enemy.passed && enemy.zPrev > Z_PLAYER && enemy.z <= Z_PLAYER) {
+        enemy.passed = true
         let da = (enemy.cylinderAngle + this.baseAngle) - Math.PI / 2
         da -= Math.round(da / (Math.PI * 2)) * (Math.PI * 2)
         if (Math.abs(da) < PLAYER_HIT_ANGLE) {
@@ -510,7 +678,87 @@ export default class GameScene extends Phaser.Scene {
           this.playerFlash = PLAYER_FLASH_DURATION
           this.spawnExplosion(0, ENTITY_RADIUS, Z_PLAYER, 0xffffff)
         }
-        deadEnemies.add(ei)
+      }
+    }
+
+    // Boss shots vs player (triangle hull hit detection)
+    const deadBossShots = new Set()
+    const [BLx, BLy] = this.applyMat2D(this.shipMat, ...SHIP_BL)
+    const [BRx, BRy] = this.applyMat2D(this.shipMat, ...SHIP_BR)
+    const [APx, APy] = this.applyMat2D(this.shipMat, ...SHIP_AP)
+    const [OPx, OPy] = this.applyMat2D(this.shipMat, 0, ENTITY_RADIUS)
+    for (let si = 0; si < this.bossShots.length; si++) {
+      const s = this.bossShots[si]
+      if (s.zPrev > Z_PLAYER && s.z <= Z_PLAYER) {
+        const wa = s.cylinderAngle + this.baseAngle
+        const lx = Math.cos(wa) * ENTITY_RADIUS
+        const ly = Math.sin(wa) * ENTITY_RADIUS
+        if (this.pointInTriangle(lx, ly, APx, APy, BLx, BLy, OPx, OPy) ||
+            this.pointInTriangle(lx, ly, APx, APy, OPx, OPy, BRx, BRy)) {
+          this.drainShields(0.5)
+          this.playerFlash = PLAYER_FLASH_DURATION
+          this.spawnExplosion(0, ENTITY_RADIUS, Z_PLAYER, 0xff2200)
+        }
+        deadBossShots.add(si)
+      }
+    }
+
+    // Mines vs player (swept)
+    for (let mi = 0; mi < this.mines.length; mi++) {
+      if (deadMines.has(mi)) continue
+      const mine = this.mines[mi]
+      if (!mine.passed && mine.zPrev > Z_PLAYER && mine.z <= Z_PLAYER) {
+        mine.passed = true
+        this.triggerMineExplosion(mi, deadMines)
+      }
+    }
+
+    // Mine blast expansion — delayed damage until circle reaches each object
+    for (const blast of this.blasts) {
+      blast.radius += MINE_BLAST_SPEED * dt
+      const bwa = blast.cylinderAngle + this.baseAngle
+      if (!blast.hitPlayer) {
+        let da = bwa - Math.PI / 2
+        da -= Math.round(da / (Math.PI * 2)) * (Math.PI * 2)
+        const arcDist = Math.abs(da) * ENTITY_RADIUS
+        const zDist = Math.abs(blast.z - Z_PLAYER)
+        if (Math.abs(da) < MINE_EXPLODE_HALF_ANGLE && zDist < MINE_EXPLODE_Z_RANGE &&
+            blast.radius >= Math.sqrt(arcDist * arcDist + zDist * zDist)) {
+          blast.hitPlayer = true
+          this.drainShields(0.5)
+          this.playerFlash = PLAYER_FLASH_DURATION
+        }
+      }
+      for (let mj = 0; mj < this.mines.length; mj++) {
+        if (deadMines.has(mj)) continue
+        const other = this.mines[mj]
+        if (blast.hitMines.has(other)) continue
+        let da2 = (other.cylinderAngle + this.baseAngle) - bwa
+        da2 -= Math.round(da2 / (Math.PI * 2)) * (Math.PI * 2)
+        const arcDist2 = Math.abs(da2) * ENTITY_RADIUS
+        const zDist2 = Math.abs(other.z - blast.z)
+        if (Math.abs(da2) < MINE_EXPLODE_HALF_ANGLE && zDist2 < MINE_EXPLODE_Z_RANGE &&
+            blast.radius >= Math.sqrt(arcDist2 * arcDist2 + zDist2 * zDist2)) {
+          blast.hitMines.add(other)
+          this.triggerMineExplosion(mj, deadMines)
+        }
+      }
+    }
+    this.blasts = this.blasts.filter(b => b.radius < MINE_BLAST_RADIUS)
+
+    // Walls vs player (swept — walls continue to Z_DESPAWN before removal)
+    for (let wi = 0; wi < this.walls.length; wi++) {
+      if (deadWalls.has(wi)) continue
+      const wall = this.walls[wi]
+      if (!wall.passed && wall.zPrev > Z_PLAYER && wall.z <= Z_PLAYER) {
+        wall.passed = true
+        let da = (wall.cylinderAngle + this.baseAngle) - Math.PI / 2
+        da -= Math.round(da / (Math.PI * 2)) * (Math.PI * 2)
+        if (Math.abs(da) < WALL_HALF_ANGLE) {
+          this.drainShields(0.5)
+          this.playerFlash = PLAYER_FLASH_DURATION
+          this.spawnExplosion(0, ENTITY_RADIUS, Z_PLAYER, 0x886600)
+        }
       }
     }
 
@@ -540,9 +788,12 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.shots = this.shots.filter((s, i) => !deadShots.has(i) && s.z < Z_FAR)
-    this.enemies = this.enemies.filter((e, i) => !deadEnemies.has(i) && e.z > Z_RECYCLE)
-    this.pickups = this.pickups.filter((p, i) => !deadPickups.has(i) && p.z > Z_RECYCLE)
-    this.particles = this.particles.filter(p => p.life > 0 && p.z > Z_RECYCLE)
+    this.enemies = this.enemies.filter((e, i) => !deadEnemies.has(i) && e.z > Z_DESPAWN)
+    this.pickups = this.pickups.filter((p, i) => !deadPickups.has(i) && p.z > Z_DESPAWN)
+    this.particles = this.particles.filter(p => p.life > 0 && p.z > Z_DESPAWN)
+    this.bossShots = this.bossShots.filter((s, i) => !deadBossShots.has(i) && s.z > Z_DESPAWN)
+    this.mines = this.mines.filter((m, i) => !deadMines.has(i) && m.z > Z_DESPAWN)
+    this.walls = this.walls.filter((w, i) => !deadWalls.has(i) && w.z > Z_DESPAWN)
 
     // --- rings ---
 
@@ -585,7 +836,7 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    this.drawPlayer()
+    if (!this.dying) this.drawPlayer()
 
     for (const shot of this.shots) {
       const alpha = this.depthAlpha(shot.z)
@@ -669,6 +920,222 @@ export default class GameScene extends Phaser.Scene {
       this.gfx.fillStyle(p.color, alpha)
       this.gfx.fillCircle(sx, sy, p.size * this.focal / p.z)
     }
+
+    for (const s of this.bossShots) {
+      const alpha = this.depthAlpha(s.z)
+      if (alpha <= 0) continue
+      const wa = s.cylinderAngle + this.baseAngle
+      const cosA = Math.cos(wa), sinA = Math.sin(wa)
+      const ex = cosA * ENTITY_RADIUS, ey = sinA * ENTITY_RADIUS
+      const tailZ = Math.min(s.z + LASER_TRAIL_LENGTH, Z_FAR - 1)
+      const [p0x, p0y] = this.project(ex + this.xOffset(s.z), ey + this.yOffset(s.z), s.z)
+      const [p1x, p1y] = this.project(ex + this.xOffset(tailZ), ey + this.yOffset(tailZ), tailZ)
+      this.gfx.lineStyle(12 * this.dpr, 0xff3300, alpha * 0.4)
+      this.gfx.lineBetween(p0x, p0y, p1x, p1y)
+      this.gfx.lineStyle(4.5 * this.dpr, 0xffffff, alpha)
+      this.gfx.lineBetween(p0x, p0y, p1x, p1y)
+    }
+
+    for (const mine of this.mines) {
+      const alpha = this.depthAlpha(mine.z)
+      if (alpha <= 0) continue
+      const wa = mine.cylinderAngle + this.baseAngle
+      const xOff = this.xOffset(mine.z), yOff = this.yOffset(mine.z)
+      const [px, py] = this.project(Math.cos(wa) * ENTITY_RADIUS + xOff, Math.sin(wa) * ENTITY_RADIUS + yOff, mine.z)
+      const s = 14 * this.focal / mine.z
+      const mFlash = mine.flash > 0
+      this.gfx.fillStyle(mFlash ? 0xffffff : 0x884400, alpha * 0.85)
+      this.gfx.fillTriangle(px, py - s, px + s, py, px, py + s)
+      this.gfx.fillTriangle(px, py - s, px - s, py, px, py + s)
+      this.gfx.lineStyle(1.5 * this.dpr, mFlash ? 0xffffff : 0xff6600, alpha)
+      this.gfx.strokeTriangle(px, py - s, px + s, py, px, py + s)
+      this.gfx.strokeTriangle(px, py - s, px - s, py, px, py + s)
+    }
+
+    for (const blast of this.blasts) {
+      const frac = blast.radius / MINE_BLAST_RADIUS
+      const alpha = (1 - frac) * this.depthAlpha(blast.z)
+      if (alpha <= 0) continue
+      const bwa = blast.cylinderAngle + this.baseAngle
+      const xOff = this.xOffset(blast.z), yOff = this.yOffset(blast.z)
+      const [bsx, bsy] = this.project(Math.cos(bwa) * ENTITY_RADIUS + xOff, Math.sin(bwa) * ENTITY_RADIUS + yOff, blast.z)
+      const screenR = blast.radius * this.focal / blast.z
+      this.gfx.lineStyle(3 * this.dpr, 0xff8800, alpha)
+      this.gfx.strokeCircle(bsx, bsy, screenR)
+    }
+
+    for (const wall of this.walls) {
+      const alpha = this.depthAlpha(wall.z)
+      if (alpha <= 0) continue
+      const growFrac = (wall.growTimer || 0) / WALL_GROW_DURATION
+      const halfA = WALL_HALF_ANGLE * growFrac
+      const wFlash = wall.flash > 0
+      const xOff = this.xOffset(wall.z), yOff = this.yOffset(wall.z)
+      const baseWa = wall.cylinderAngle + this.baseAngle
+      const [p0x, p0y] = this.project(Math.cos(baseWa - halfA) * ENTITY_RADIUS + xOff, Math.sin(baseWa - halfA) * ENTITY_RADIUS + yOff, wall.z)
+      const [p1x, p1y] = this.project(Math.cos(baseWa + halfA) * ENTITY_RADIUS + xOff, Math.sin(baseWa + halfA) * ENTITY_RADIUS + yOff, wall.z)
+      this.gfx.lineStyle(5 * this.dpr, wFlash ? 0xffffff : 0xcc8800, alpha)
+      this.gfx.lineBetween(p0x, p0y, p1x, p1y)
+    }
+
+    if (this.boss) this.drawBoss()
+  }
+
+  tickBossAttack(dt) {
+    if (!this.boss || this.boss.z > BOSS_REST_Z) return
+
+    // Mines always spawn continuously from alive points
+    for (let p = 0; p < BOSS_POINTS; p++) {
+      if (!this.boss.points[p].alive) continue
+      if ((this.boss.mineTimers[p] -= dt) <= 0) {
+        this.mines.push({ cylinderAngle: (p / BOSS_POINTS) * Math.PI * 2 + this.boss.angle, z: this.boss.z, zPrev: this.boss.z, hp: MINE_HP, flash: 0, angVel: (Math.random() < 0.5 ? -1 : 1) * (0.2 + Math.random() * 0.4) })
+        this.boss.mineTimers[p] = MINE_SPAWN_INTERVAL_MIN + Math.random() * (MINE_SPAWN_INTERVAL_MAX - MINE_SPAWN_INTERVAL_MIN)
+      }
+    }
+
+    if (this.wallAttackCooldown > 0) this.wallAttackCooldown -= dt
+
+    if (this.bossAttack === null) {
+      if ((this.bossAttackCooldown -= dt) <= 0) this.startNextAttack()
+      return
+    }
+    const atk = this.bossAttack
+    if (atk.type === 'columnSpread') {
+      if (atk.phase === 0) {
+        for (let p = 0; p < BOSS_POINTS; p += 2) {
+          if (!this.boss.points[p].alive) continue
+          this.bossShots.push({ cylinderAngle: (p / BOSS_POINTS) * Math.PI * 2 + this.boss.angle, z: this.boss.z, zPrev: this.boss.z })
+        }
+        atk.phase = 1; atk.timer = ATTACK_COLUMN_GAP
+      } else if ((atk.timer -= dt) <= 0) {
+        for (let p = 1; p < BOSS_POINTS; p += 2) {
+          if (!this.boss.points[p].alive) continue
+          this.bossShots.push({ cylinderAngle: (p / BOSS_POINTS) * Math.PI * 2 + this.boss.angle, z: this.boss.z, zPrev: this.boss.z })
+        }
+        this.endAttack()
+      }
+    } else if (atk.type === 'spiral') {
+      if ((atk.timer -= dt) <= 0) {
+        while (atk.nextPoint < BOSS_POINTS) {
+          const p = atk.nextPoint++
+          if (!this.boss.points[p].alive) continue
+          this.bossShots.push({ cylinderAngle: (p / BOSS_POINTS) * Math.PI * 2 + this.boss.angle, z: this.boss.z, zPrev: this.boss.z })
+          atk.timer = ATTACK_SPIRAL_INTERVAL
+          break
+        }
+        if (atk.nextPoint >= BOSS_POINTS) this.endAttack()
+      }
+    } else if (atk.type === 'walls') {
+      if ((atk.timer -= dt) <= 0) {
+        let i = 0
+        for (let p = 0; p < BOSS_POINTS; p++) {
+          if (!this.boss.points[p].alive) continue
+          if (i % 2 === 0) this.walls.push({ cylinderAngle: (p / BOSS_POINTS) * Math.PI * 2 + this.boss.angle, z: this.boss.z, zPrev: this.boss.z, hp: WALL_HP, flash: 0, growTimer: 0 })
+          i++
+        }
+        if (--atk.wavesLeft <= 0) this.endAttack()
+        else atk.timer = WALL_WAVE_GAP
+      }
+    }
+  }
+
+  startNextAttack() {
+    const types = this.wallAttackCooldown > 0
+      ? ['columnSpread', 'spiral']
+      : ['columnSpread', 'spiral', 'walls']
+    const type = types[Math.floor(Math.random() * types.length)]
+    if (type === 'columnSpread') this.bossAttack = { type, phase: 0, timer: 0 }
+    else if (type === 'spiral') this.bossAttack = { type, nextPoint: 0, timer: 0 }
+    else { this.bossAttack = { type: 'walls', wavesLeft: WALL_WAVE_COUNT, timer: 0 }; this.wallAttackCooldown = 5 }
+  }
+
+  endAttack() {
+    this.bossAttack = null
+    this.bossAttackCooldown = ATTACK_COOLDOWN_MIN + Math.random() * (ATTACK_COOLDOWN_MAX - ATTACK_COOLDOWN_MIN)
+  }
+
+  triggerMineExplosion(mi, deadMines) {
+    if (deadMines.has(mi)) return
+    deadMines.add(mi)
+    const mine = this.mines[mi]
+    const worldAngle = mine.cylinderAngle + this.baseAngle
+    this.spawnExplosion(Math.cos(worldAngle) * ENTITY_RADIUS, Math.sin(worldAngle) * ENTITY_RADIUS, mine.z, 0xff6600)
+    this.blasts.push({ cylinderAngle: mine.cylinderAngle, z: mine.z, radius: 0, hitPlayer: false, hitMines: new Set() })
+  }
+
+  defeatBoss() {
+    const { z, angle } = this.boss
+    const worldAngle = angle + this.baseAngle
+    this.spawnExplosion(0, 0, z, 0xffff00)
+    for (let i = 0; i < BOSS_POINTS; i++) {
+      const a = (i / BOSS_POINTS) * Math.PI * 2 + worldAngle
+      this.spawnExplosion(Math.cos(a) * BOSS_OUTER_R, Math.sin(a) * BOSS_OUTER_R, z, i % 2 === 0 ? 0xffaa00 : 0xff4400)
+    }
+    this.boss = null
+    this.bossMode = false
+    this.bossCountdown = 20
+  }
+
+  drawBoss() {
+    const { z, points } = this.boss
+    const angle = this.boss.angle + this.baseAngle
+    const alpha = this.depthAlpha(z)
+    if (alpha <= 0) return
+    const xOff = this.xOffset(z)
+    const yOff = this.yOffset(z)
+
+    const proj = (wx, wy) => { const [sx, sy] = this.project(wx + xOff, wy + yOff, z); return { x: sx, y: sy } }
+
+    // Pre-compute inner and outer world-space positions
+    const inWX = [], inWY = [], outWX = [], outWY = []
+    for (let p = 0; p < BOSS_POINTS; p++) {
+      const aIn = ((2 * p + 1) / (BOSS_POINTS * 2)) * Math.PI * 2 + angle  // inner between spike p and p+1
+      inWX[p] = Math.cos(aIn) * BOSS_INNER_R
+      inWY[p] = Math.sin(aIn) * BOSS_INNER_R
+      const aOut = (p / BOSS_POINTS) * Math.PI * 2 + angle
+      outWX[p] = Math.cos(aOut) * BOSS_OUTER_R
+      outWY[p] = Math.sin(aOut) * BOSS_OUTER_R
+    }
+
+    // Build polygon: for each spike, inner_before → outer-or-jag → (inner_after added by next spike)
+    const poly = []
+    for (let p = 0; p < BOSS_POINTS; p++) {
+      const prevP = (p - 1 + BOSS_POINTS) % BOSS_POINTS
+      poly.push(proj(inWX[prevP], inWY[prevP]))  // inner before spike p
+      const bp = points[p]
+      if (bp.alive) {
+        poly.push(proj(outWX[p], outWY[p]))
+      } else {
+        const ibx = inWX[prevP], iby = inWY[prevP]
+        const iax = inWX[p], iay = inWY[p]
+        const dx = iax - ibx, dy = iay - iby
+        const len = Math.hypot(dx, dy) || 1
+        const perpX = -dy / len, perpY = dx / len
+        const jags = bp.jags || []
+        for (let j = 0; j < BOSS_JAG_COUNT; j++) {
+          const t = (j + 1) / (BOSS_JAG_COUNT + 1)
+          poly.push(proj(ibx + dx * t + perpX * (jags[j] || 0), iby + dy * t + perpY * (jags[j] || 0)))
+        }
+      }
+    }
+    poly.push(proj(inWX[BOSS_POINTS - 1], inWY[BOSS_POINTS - 1]))  // close back to inW[15]
+
+    this.gfx.fillStyle(0xcc8800, alpha * 0.5)
+    this.gfx.fillPoints(poly, true)
+    this.gfx.lineStyle(2 * this.dpr, 0xffff00, alpha)
+    this.gfx.strokePoints(poly, true)
+
+    // Flash individual struck spikes white
+    for (let p = 0; p < BOSS_POINTS; p++) {
+      const bp = points[p]
+      if (!bp.alive || bp.flash <= 0) continue
+      const prevP = (p - 1 + BOSS_POINTS) % BOSS_POINTS
+      const p0 = proj(inWX[prevP], inWY[prevP])
+      const p1 = proj(outWX[p], outWY[p])
+      const p2 = proj(inWX[p], inWY[p])
+      this.gfx.fillStyle(0xffffff, alpha * (bp.flash / BOSS_FLASH_DUR))
+      this.gfx.fillTriangle(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y)
+    }
   }
 
   spawnPickupAnim(fromX, fromY, color, label, target) {
@@ -711,9 +1178,19 @@ export default class GameScene extends Phaser.Scene {
   }
 
   drainShields(amount) {
+    if (this.dying) return
     this.shields = Math.max(0, this.shields - amount)
     this.registry.set('shields', this.shields)
-    if (this.shields <= 0) this.endGame()
+    if (this.shields <= 0) this.startDeathSequence()
+  }
+
+  startDeathSequence() {
+    if (this.dying) return
+    this.dying = true
+    for (const color of [0xffffff, 0xff8800, 0xff2200, 0xffff00]) {
+      this.spawnExplosion(0, ENTITY_RADIUS, Z_PLAYER, color)
+    }
+    this.time.delayedCall(800, () => this.endGame())
   }
 
   addScore(pts) {
