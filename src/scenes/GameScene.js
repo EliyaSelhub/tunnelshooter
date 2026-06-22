@@ -50,6 +50,8 @@ const SHIELD_RESTORE = 1
 
 const ENTITY_RADIUS = RADIUS * 0.85
 
+const BOSS_ENABLED = false
+
 const UPGRADE_DURATION = 15
 const SIDE_CANNON_ANGLE = Math.PI / 9   // 20° off axis
 const SIDE_CANNON_SPIRAL_RATE = Math.PI / 2
@@ -145,7 +147,7 @@ export default class GameScene extends Phaser.Scene {
     this.largeWaveCountdown = 3 + Math.floor(Math.random() * 2)
     this.gameActive = true
     this.dying = false
-    this.bossCountdown = 45
+    this.bossCountdown = 90
     this.bossShots = []
     this.mines = []
     this.blasts = []
@@ -493,7 +495,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // Boss respawn countdown
-    if (!this.bossMode && this.bossCountdown > 0) {
+    if (BOSS_ENABLED && !this.bossMode && this.bossCountdown > 0) {
       this.bossCountdown -= dt
       if (this.bossCountdown <= 0) {
         this.bossMode = true
@@ -780,7 +782,7 @@ export default class GameScene extends Phaser.Scene {
           } else {
             this.shields = Math.min(MAX_SHIELDS, this.shields + SHIELD_RESTORE)
             this.registry.set('shields', this.shields)
-            this.spawnPickupAnim(psx, psy, 0x00ffff, 'SHIELDS +' + SHIELD_RESTORE, { x: 91 * this.dpr, y: 29 * this.dpr })
+            this.spawnPickupAnim(psx, psy, 0x00ffff, 'SHIELDS +' + SHIELD_RESTORE, { x: 127 * this.dpr, y: 29 * this.dpr })
           }
         }
         deadPickups.add(pi)
